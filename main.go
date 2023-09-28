@@ -15,66 +15,72 @@ const (
 	resultFile          = "result.json"
 )
 
-type DataJson []string
+type DataJson struct {
+	Messages []string
+}
 
 type Replacements struct {
 	Replacement string `json:"replacement"`
 	Source      string `json:"source"`
 }
 
-var myClient = &http.Client{Timeout: 10 * time.Second}
+type Blackhole struct {
+	Replacements []Replacements
+	Data         DataJson
+}
 
 func main() {
+	var bh Blackhole
+
 	// Read the replacement.json file
-	replacementData, err := os.ReadFile(replacementJSONFile)
+	err := replacementData(&bh)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	var replacements []Replacements
-
-	if err := json.Unmarshal(replacementData, &replacements); err != nil {
+	// Get and Read the data.json file from URL
+	if err := getWrongDataFromURL(URL, &bh.Data.Messages); err != nil {
 		log.Fatal(err)
 	}
 
-	var dataData DataJson
-
-	// Get and Read the data.json file
-	err = getJson(URL, &dataData)
+	repairData, err := repairWrongData(&bh)
 	if err != nil {
 		log.Fatal(err)
-	}
-
-	// Apply the replacement rules to the messages
-	var modifiedData []string
-	for _, message := range dataData {
-		for i := len(replacements) - 1; i >= 0; i-- {
-			replacement := replacements[i].Replacement
-			source := replacements[i].Source
-
-			if source == "" && strings.Contains(message, replacement) {
-				message = ""
-				break // Remove the message
-			}
-			if message != "" {
-				message = strings.ReplaceAll(message, replacement, source)
-			}
-
-		}
-		if message != "" {
-			modifiedData = append(modifiedData, message)
-		}
 	}
 
 	// Write the modified messages to result.json
-	err = writeMessagesToFile(&modifiedData)
+	err = writeRepairDataToFile(&repairData, resultFile)
 	if err != nil {
 		log.Fatal(err)
 	}
 
 }
 
-func writeMessagesToFile(modifiedData *[]string) error {
+func repairWrongData(bh *Blackhole) ([]string, error) {
+	var modifiedData []string
+
+	// Apply the replacement rules to the messages
+	for _, message := range bh.Data.Messages {
+		for i := len(bh.Replacements) - 1; i >= 0; i-- {
+			replacement := bh.Replacements[i].Replacement
+			source := bh.Replacements[i].Source
+
+			if source == "" && strings.Contains(message, replacement) {
+				message = ""
+				break // Remove the message
+			}
+			message = strings.ReplaceAll(message, replacement, source)
+
+		}
+		if message != "" {
+			modifiedData = append(modifiedData, message)
+		}
+	}
+	return modifiedData, nil
+
+}
+
+func writeRepairDataToFile(modifiedData *[]string, resultFile string) error {
 	resultData, err := json.Marshal(modifiedData)
 	if err != nil {
 		return err
@@ -85,7 +91,20 @@ func writeMessagesToFile(modifiedData *[]string) error {
 	return nil
 }
 
-func getJson(url string, target interface{}) error {
+func replacementData(bh *Blackhole) error {
+	// Read the replacement.json file
+	replacementData, err := os.ReadFile(replacementJSONFile)
+	if err != nil {
+		return err
+	}
+	if err := json.Unmarshal(replacementData, &bh.Replacements); err != nil {
+		return err
+	}
+	return nil
+}
+
+func getWrongDataFromURL(url string, target interface{}) error {
+	var myClient = &http.Client{Timeout: 10 * time.Second}
 	r, err := myClient.Get(url)
 	if err != nil {
 		return err
